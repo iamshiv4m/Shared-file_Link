@@ -22,9 +22,9 @@ let upload = multer({
 router.post("/", (req, res) => {
   upload(req, res, async (err) => {
     //   Validate Request
-    if (!req.file) {
-      return res.json({ error: "All Fields are Mandotary" });
-    }
+    // if (!req.file) {
+    //   return res.json({ error: "All Fields are Mandotary" });
+    // }
     // store files
     if (err) {
       return res.status(500).send({ error: err.message });
@@ -54,35 +54,46 @@ router.post("/send", async (req, res) => {
   const { uuid, emailTo, emailFrom } = req.body;
   // validate request
   if (!uuid || !emailTo || !emailFrom) {
-    return res.status(422).send({ error: "All fields are required" });
+    return res
+      .status(422)
+      .send({ error: "All fields are required except expiry" });
   }
 
   // Get Data from DataBase
-  const file = await File.findOne({ uuid: uuid });
-  if (file.sender) {
-    return res.status(422).send({ error: "Email already sent" });
+  try {
+    const file = await File.findOne({ uuid: uuid });
+    if (file.sender) {
+      return res.status(422).send({ error: "Email already sent" });
+    }
+
+    file.sender = emailFrom;
+    file.receiver = emailTo;
+    const response = await file.save();
+
+    // send email
+
+    const sendMail = require("../services/emailService");
+    sendMail({
+      from: emailFrom,
+      to: emailTo,
+      subject: "FileSharing via link",
+      text: `${emailFrom} shared a file with you`,
+      html: require("../services/emailTemplate")({
+        emailFrom: emailFrom,
+        downloadLink: `${process.env.APP_BASE_URL}/files/${file.uuid}`,
+        size: parseInt(file.size / 1000) + "kb",
+        expires: "24 hours",
+      }),
+    })
+      .then(() => {
+        return res.json({ success: true });
+      })
+      .catch((err) => {
+        return res.status(500).json({ error: "Error in email sending." });
+      });
+  } catch (err) {
+    return res.status(500).send({ error: "Something went wrong." });
   }
-
-  file.sender = emailFrom;
-  file.receiver = emailTo;
-  const response = await file.save();
-
-  // send email
-
-  const sendMail = require("../services/emailService");
-  sendMail({
-    from: emailFrom,
-    to: emailTo,
-    subject: "FileSharing via link",
-    text: `${emailFrom} shared a file with you`,
-    html: require("../services/emailTemplate")({
-      emailFrom: emailFrom,
-      downloadLink: `${process.env.APP_BASE_URL}/files/${file.uuid}`,
-      size: parseInt(file.size / 1000) + "kb",
-      expires: "24 hours",
-    }),
-  });
-  return res.send({ success: true });
 });
 
 module.exports = router;
